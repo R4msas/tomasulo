@@ -5,16 +5,15 @@
 #include <map>
 using namespace std;
 
-
 class Instrucao
 {
 public:
-    string operacao;   // Tipo de operação (ADD, SUB, MUL, DIV)
-    string destino;    // Registrador de Destino
-    string operando1;  // Operando 1
-    string operando2;  // Operando 2
+    string operacao;  // Tipo de operação (ADD, SUB, MUL, DIV)
+    string destino;   // Registrador de Destino
+    string operando1; // Operando 1
+    string operando2; // Operando 2
     int ciclosExecucaoRestantes;
-    bool opConflito;
+    bool opEmissao;
     bool emExecucao;
     bool opCompleta;
 
@@ -28,16 +27,16 @@ public:
         Todas as outras propriedades são marcadas como falsas, para o início da execução
     */
     Instrucao(string op, string dest, string src1, string src2)
-        : operacao(op), destino(dest), operando1(src1), operando2(src2), ciclosExecucaoRestantes(0), opConflito(false), emExecucao(false), opCompleta(false) {}
+        : operacao(op), destino(dest), operando1(src1), operando2(src2), ciclosExecucaoRestantes(0), opEmissao(false), emExecucao(false), opCompleta(false) {}
 };
 
 class UnidadeFuncional
 {
 public:
-    string tipoUnidade;    // Tipo da Unidade Funcional (ADD, SUB, MUL, DIV)
-    int ciclosExecucao;         // Quantidade de ciclos que a instrução demora a ser executada
+    string tipoUnidade; // Tipo da Unidade Funcional (ADD, SUB, MUL, DIV)
+    int ciclosExecucao; // Quantidade de ciclos que a instrução demora a ser executada
     bool estaOcupada;
-    Instrucao *instrucao;       // Instrução em execução
+    Instrucao *instrucao; // Instrução em execução
 
     /*
         Unidade Funcional recebe:
@@ -53,11 +52,11 @@ public:
 class Registrador
 {
 public:
-    string nomeRegistrador;    // Nome do Registrador
-    int valorRegistrador;           // Valor atual do Registrador
-    bool ocupadoRead;               // Busy Read
-    bool ocupadoWrite;              // Busy Write
-    Instrucao *instrucao;           // Instrução ocupando o Registrador
+    string nomeRegistrador; // Nome do Registrador
+    int valorRegistrador;   // Valor atual do Registrador
+    bool ocupadoRead;       // Busy Read
+    bool ocupadoWrite;      // Busy Write
+    Instrucao *instrucao;   // Instrução ocupando o Registrador
 
     /*
         Registrador recebe:
@@ -74,37 +73,47 @@ public:
 class Tomasulo
 {
 public:
-    vector<Instrucao *> listaInstrucoes;       // Lista de Instruções
+    vector<Instrucao *> listaInstrucoes; // Lista de Instruções
     vector<UnidadeFuncional *> unidadesADD;
     vector<UnidadeFuncional *> unidadesMUL;
     vector<UnidadeFuncional *> unidadesSW;
     vector<Registrador *> listaRegistradores;
     map<string, string> renomear;
-    int x=-1;
-    int ciclo;                                      // Ciclo atual
+    int x = -1;
+    int ciclo; // Ciclo atual
     vector<int> memoriaCache;
 
-    Tomasulo(vector<Instrucao *> instructions, map<string, int> values)
-        : listaInstrucoes(instructions), ciclo(1), memoriaCache(32, 2)
+    /*
+        O construtor de Tomasulo é iniciado recebendo as instruções, um mapa com o tipo de operação e a duração dos ciclos execução,
+        o número do ciclo inicial e a memória cache.
+        A quantidade de ciclos de execução será passada pelo código na execução do 'main'.
+        A memória cache foi definida como tendo 32 endereços de valores '2'.
+    */
+    Tomasulo(vector<Instrucao *> instrucoes, map<string, int> valores)
+        : listaInstrucoes(instrucoes), ciclo(1), memoriaCache(32, 2)
     {
-        unidadesADD = criarUnidadeFuncional(values["addUnitQnt"], "add", values["addUnitLatency"]);
-        unidadesMUL = criarUnidadeFuncional(values["mulUnitQnt"], "mul", values["mulUnitLatency"]);
-        unidadesSW = criarUnidadeFuncional(values["swUnitQnt"], "sw", values["swUnitLatency"]);
-        listaRegistradores = criarRegistradores(values["registerQnt"]);
+        /*
+            Fizemos um reaproveitamento no código, tratando as unidades de SUB junto com ADD, DIV junto com MUL e LW junto com SW.
+            Embora não seja um reflexo da arquitetura real, existe a vantagem de simplificar a implementação.
+        */
+        unidadesADD = criarUnidadeFuncional(valores["unidadeAddQtd"], "add", valores["unidadeAddLatencia"]);
+        unidadesMUL = criarUnidadeFuncional(valores["unidadeMulQtd"], "mul", valores["unidadeMulLatencia"]);
+        unidadesSW = criarUnidadeFuncional(valores["unidadeSwQtd"], "sw", valores["unidadeSwLatencia"]);
+        listaRegistradores = criarRegistradores(valores["qtdRegistradores"]);
     }
 
     // Criar as Unidades Funcionais
-    vector<UnidadeFuncional *> criarUnidadeFuncional(int numUnits, string type, int latency)
+    vector<UnidadeFuncional *> criarUnidadeFuncional(int numeroUnidades, string tipo, int latencia)
     {
-        vector<UnidadeFuncional *> units;
-        for (int i = 0; i < numUnits; i++)
+        vector<UnidadeFuncional *> unidades;
+        for (int i = 0; i < numeroUnidades; i++)
         {
-            units.push_back(new UnidadeFuncional(type, latency));
+            unidades.push_back(new UnidadeFuncional(tipo, latencia));
         }
-        return units;
+        return unidades;
     }
 
-    // Cria os Registradores
+    // Criar os Registradores
     vector<Registrador *> criarRegistradores(int quant)
     {
         vector<Registrador *> registrador;
@@ -119,38 +128,38 @@ public:
         return registrador;
     }
 
-    // Primeiro metodo utilizado
     void executarTomasulo()
     {
-        while (!execucaoCompleta())
+        while (!execucaoCompleta()) // Loop pela execução
         {
-            emissao();           // Estágio de emissão (Issue)
-            executar();           // Estágio de execução (Execution)
-            escrever();           // Estágio de escrita (Write-Back)
-            exibirEstadoAtual(false); // Exibe apenas registradores em uso
+            emissao();                // Estágio de emissão (Issue)
+            executar();               // Estágio de execução (Execution)
+            escrever();               // Estágio de escrita (Write-Back)
+            exibirEstadoAtual(false); // Exibir apenas os Registradores que estão sendo utilizados
             ciclo++;
         }
         exibirEstadoAtual(false);
+
         printf("\nEXECUÇÃO FINALIZADA\n");
     }
-
 
     void exibirEstadoAtual(bool exibirApenasEmUso)
     {
         printf("\n=====X=====X=====X=====X=====\n");
         printf("\n[ CICLO %d ]\n", ciclo); // Exibir o ciclo atual
 
-        // Instruções em espera
+        // Instruções em Espera
         printf("\n>> Instruções em Espera:");
         for (const auto &instrucao : listaInstrucoes)
         {
+            // Exibir apenas as instruções que não estão nem execução e que também não foram finalizadas
             if (!instrucao->emExecucao && !instrucao->opCompleta)
             {
-                printf("\nInstrução: %s %s %s %s", 
-                    instrucao->operacao.c_str(), 
-                    instrucao->destino.c_str(), 
-                    instrucao->operando1.c_str(), 
-                    instrucao->operando2.c_str());
+                printf("\nInstrução: %s %s %s %s",
+                       instrucao->operacao.c_str(),
+                       instrucao->destino.c_str(),
+                       instrucao->operando1.c_str(),
+                       instrucao->operando2.c_str());
             }
         }
 
@@ -169,7 +178,7 @@ public:
             exibirEstadoEstacao(unidade);
         }
 
-        // Valores dos registradores
+        // Valores dos Registradores
         printf("\n\n>> Valores dos Registradores:");
         for (const auto &registrador : listaRegistradores)
         {
@@ -177,10 +186,10 @@ public:
             if (!exibirApenasEmUso || registrador->ocupadoRead || registrador->ocupadoWrite)
             {
                 printf("\n%s: %d\t\t[ Busy Read: %s ] [ Busy Write: %s ]",
-                    registrador->nomeRegistrador.c_str(),
-                    registrador->valorRegistrador,
-                    registrador->ocupadoRead ? "Sim" : "Não",
-                    registrador->ocupadoWrite ? "Sim" : "Não");
+                       registrador->nomeRegistrador.c_str(),
+                       registrador->valorRegistrador,
+                       registrador->ocupadoRead ? "Sim" : "Não",
+                       registrador->ocupadoWrite ? "Sim" : "Não");
             }
         }
 
@@ -193,10 +202,10 @@ public:
         {
             printf("\nEstação: %s", unidade->tipoUnidade.c_str());
             printf("\n\tInstrução: %s %s %s %s",
-                unidade->instrucao->operacao.c_str(),
-                unidade->instrucao->destino.c_str(),
-                unidade->instrucao->operando1.c_str(),
-                unidade->instrucao->operando2.c_str());
+                   unidade->instrucao->operacao.c_str(),
+                   unidade->instrucao->destino.c_str(),
+                   unidade->instrucao->operando1.c_str(),
+                   unidade->instrucao->operando2.c_str());
             printf("\n\tCiclos restantes: %d", unidade->instrucao->ciclosExecucaoRestantes);
         }
         else
@@ -204,7 +213,6 @@ public:
             printf("\nEstação: %s (vazia)", unidade->tipoUnidade.c_str());
         }
     }
-
 
     // Verifica se a execução está completa
     bool execucaoCompleta()
@@ -221,9 +229,9 @@ public:
 
     void renomearRegistrador(Registrador *target, size_t index)
     {
-        x++;
+        x++; // Aumentar o número de registradores temporários que são criados, para entrar no mapa
         size_t posicaoRegistradorTemporario = listaRegistradores.size() / 2;
-        string novoNome = "X"+to_string(x);
+        string novoNome = "X" + to_string(x);
 
         // Loop para encontrar registrador temporário disponível
         while (listaRegistradores[posicaoRegistradorTemporario]->ocupadoRead || listaRegistradores[posicaoRegistradorTemporario]->ocupadoWrite)
@@ -271,8 +279,6 @@ public:
         }
     }
 
-
-
     // Faz o estágio de emissão (issue)
     void emissao()
     {
@@ -285,10 +291,10 @@ public:
         {
             Instrucao *instrucao = listaInstrucoes[i];
             UnidadeFuncional *unidade = nullptr;
-            if (instrucao->emExecucao || instrucao->opCompleta || !instrucao->opConflito)
+            if (instrucao->emExecucao || instrucao->opCompleta || !instrucao->opEmissao)
             {
                 // Verifica se há uma unidade funcional disponível para a instrução
-                instrucao->opConflito = true;
+                instrucao->opEmissao = true;
                 unidade = nullptr;
             }
             else if (instrucao->operacao == "add" || instrucao->operacao == "sub")
@@ -353,7 +359,7 @@ public:
         }
     }
 
-    // Faz o estágio de execução
+    // Fazer o estágio de execução
     void executar()
     {
         for (size_t i = 0; i < unidadesADD.size(); i++)
@@ -396,7 +402,7 @@ public:
         }
     }
 
-    // Faz o estágio de escrita
+    // Fazer o estágio de escrita
     void escrever()
     {
         escreveExecucao(unidadesADD);
@@ -405,16 +411,16 @@ public:
     }
 
     // Executa as funções da escrita
-    void escreveExecucao(vector<UnidadeFuncional *> &unitType)
+    void escreveExecucao(vector<UnidadeFuncional *> &tipoUnidade)
     {
-        
-        for (size_t i = 0; i < unitType.size(); i++)
+
+        for (size_t i = 0; i < tipoUnidade.size(); i++)
         {
-            UnidadeFuncional *unidade = unitType[i];
+            UnidadeFuncional *unidade = tipoUnidade[i];
             if (unidade->estaOcupada && !unidade->instrucao->emExecucao && !unidade->instrucao->opCompleta)
             {
                 unidade->instrucao->opCompleta = true;
-                unidade->estaOcupada = false;
+                unidade->estaOcupada = false; // Liberar a unidade
 
                 // Atualiza o valor do registrador de destino
                 Registrador *registradorDestino = getRegistrador(unidade->instrucao->destino);
@@ -427,7 +433,7 @@ public:
 
                     if (unidade->instrucao->operacao == "sw")
                     {
-                        // Evitar out of bounds com %, resto de divisão (para testes)
+                        // Evitar out of bounds com resto da divisão (%)
                         memoriaCache[offset % memoriaCache.size()] = registradorDestino->valorRegistrador;
                     }
                     else if (unidade->instrucao->operacao == "lw")
@@ -457,6 +463,7 @@ public:
             }
         }
     }
+
     void retornaRenomeado(Registrador *target, size_t index)
     {
         // Renomear os valores na lista de instrução
@@ -498,7 +505,7 @@ public:
     // Obtém o registro pelo nome
     Registrador *getRegistrador(const string &name)
     {
-        //voltarAqui
+        // voltarAqui
 
         for (size_t i = 0; i < listaRegistradores.size(); i++)
         {
@@ -507,27 +514,29 @@ public:
                 return listaRegistradores[i];
             }
         }
-        if(name.at(0)=='X')
+
+        if (name.at(0) == 'X')
         {
-        int pos=0;
-        string nomeNovo=renomear[name];
-        if(nomeNovo.at(0)=='R')
+            int pos = 0;
+            string nomeNovo = renomear[name];
+
+            if (nomeNovo.at(0) == 'R')
+            {
+                pos = 16;
+            }
+
+            string numero = nomeNovo.substr(1);
+            pos += stoi(numero);
+
+            return listaRegistradores[pos];
+        }
+        else
         {
-            pos=16;
-        }
-        string numero=nomeNovo.substr(1);
-        pos+=stoi(numero);
-        return listaRegistradores[pos];
-        
-        }
-        else{
             return nullptr;
         }
-       
-        
     }
 
-    // Executa a operação matemática
+    // Executar a Operação Matemática
     int executaOperacaoMatematica(const string &op, int src1, int src2)
     {
         if (op == "add")
@@ -564,42 +573,42 @@ int main()
 {
     // Leitura das instruções a partir de um arquivo de texto
     vector<Instrucao *> instrucoes;
-    ifstream inputFile("inst.txt"); // Nome do arquivo de texto
+    ifstream arquivoInput("instrucoes.txt"); // Nome do arquivo de texto
 
-    if (!inputFile.is_open())
+    if (!arquivoInput.is_open())
     {
         cerr << "Erro ao abrir o arquivo." << endl;
         return 1;
     }
 
-    string line;
-    while (getline(inputFile, line))
+    string linha;
+    while (getline(arquivoInput, linha))
     {
-        istringstream iss(line);
+        istringstream iss(linha);
         string op, dest, src1, src2;
         iss >> op >> dest >> src1 >> src2;
         instrucoes.push_back(new Instrucao(op, dest, src1, src2));
     }
 
-    inputFile.close();
+    arquivoInput.close();
 
     // Preset de latências por instrução, quantidade de registradores e quantidade de unidades lógicas
     map<string, int> valores = {
-        {"addUnitLatency", 3},
-        {"mulUnitLatency", 10},
-        {"swUnitLatency", 2},
-        {"addUnitQnt", 3},
-        {"mulUnitQnt", 2},
-        {"swUnitQnt", 2},
-        {"registerQnt", 16}};
+        {"unidadeAddLatencia", 3},
+        {"unidadeMulLatencia", 10},
+        {"unidadeSwLatencia", 2},
+        {"unidadeAddQtd", 3},
+        {"unidadeMulQtd", 2},
+        {"unidadeSwQtd", 2},
+        {"qtdRegistradores", 16}};
 
-    vector<int> cacheMem(32, 2); // Inicialização do cache com valores diferentes
+    vector<int> memoriaCache(32, 2); // Inicialização do cache com valores diferentes
 
     Tomasulo tomasulo(instrucoes, valores);
     tomasulo.executarTomasulo();
 
-    // Libera a memória alocada para as instruções
+    // Liberar a memória alocada para as instruções
     liberarMemoriaAlocada(instrucoes);
 
     return 0;
-} 
+}
